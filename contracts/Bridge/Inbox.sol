@@ -264,6 +264,7 @@ contract Inbox is DelegateCallAware, PuasableUpgredeable, IInbox {
                 )
             );
     }
+
     function sendWithdrawEthToFork(
         uint256 gasLimit,
         uint256 maxFeePerGas,
@@ -280,7 +281,6 @@ contract Inbox is DelegateCallAware, PuasableUpgredeable, IInbox {
         return
             _deliverMessage(
                 L3_MSG,
-
                 AddressAliasHelper.undoL2ToL3Alias(msg.sender),
                 abi.encodePacked(
                     L2MessageType_unsignedEOATx,
@@ -293,10 +293,266 @@ contract Inbox is DelegateCallAware, PuasableUpgredeable, IInbox {
                 )
             );
     }
-    function calculateRetryableSubmissionFee(uint256 dataLength , uint256 baseFee)
-    public
-    view 
-    returns (uint256) {
-        return(1400 + 6 * dataLength) * ( baseFee == 0 ? block.baseFee : baseFee);
+
+    function calculateRetryableSubmissionFee(
+        uint256 dataLength,
+        uint256 baseFee
+    ) public view returns (uint256) {
+        return
+            (1400 + 6 * dataLength) * (baseFee == 0 ? block.baseFee : baseFee);
+    }
+
+    function depositEth()
+        public
+        payable
+        whenNotPaused
+        onlyAllowed
+        returns (uint256)
+    {
+        address dest = msg.sender;
+
+        if (
+            AddressUpgredeable.isContract(msg.sender) || tx.origin != msg.sender
+        ) {
+            dest = AddressAliasHelper.applyL2ToL3Alias(msg.sender);
+        }
+        return
+            _deliverMessage(
+                L2MessageType_L3FundedByL2,
+                msg.sender,
+                abi.encodePacked(L3MessageType_depositEth, msg.value)
+            );
+    }
+
+    function depositEth()
+        external
+        payable
+        whenNotPaused
+        onlyAllowed
+        returns (uint256)
+    {
+        return depositEth();
+    }
+
+    function createRetyrableTicketNoRefundAliasRewrite(
+        address to,
+        uint256 l3CallValue,
+        uint256 maxSubmissionCost,
+        address excessFeeRefundAddress,
+        address callValueRefundAddress,
+        uint256 gasLimit,
+        uint256 maxFeePerGas,
+        bytes calldata data
+    ) external payable whenNotPaused onlyAllowed returns (uint256) {
+        return (
+            unsafeCreateRetryableTicket(
+                to,
+                l3CallValue,
+                maxSubmissionCost,
+                excessFeeRefundAddress,
+                callValueRefundAddress,
+                gasLimit,
+                maxFeePerGas,
+                data
+            )
+        );
+    }
+
+    function createRetryableTicket(
+        address to,
+        uint256 l3CallValue,
+        uint256 maxSubmissionCost,
+        address excessFeeRefundAddress,
+        address callValueRefundAddress,
+        uint256 gasLimit,
+        uint256 maxFeePerGas,
+        bytes calldata data
+    ) external payable whenNotPaused onlyAllowed returns (uint256) {
+        if (
+            msg.value <
+            (maxSubmissionCost + l3CallValue + gasLimit + maxFeePerGas)
+        )
+            revert InsufficientFunds(
+                maxSubmissionCost + l3CallValue + gasLimit + maxFeePerGas,
+                msg.value
+            );
+        if (AddressUpgredeable.isContract(excessFeeRefundAddress)) {
+            excessFeeRefundAddress = AddressAliasHelper.applyL2ToL3Alias(
+                l2Address
+            );
+        }
+        if (AddressUpgredeable.isContract(callValueRefundAddress)) {
+            callValueRefundAddress = AddressAliasHelper.applyL2ToL3Alias(
+                callValueRefundAddress
+            );
+        }
+
+        return
+            unsafeCreateRetryableTicket(
+                to,
+                l3CallValue,
+                maxSubmissionCost,
+                excessFeeRefundAddress,
+                callValueRefundAddress,
+                gasLimit,
+                maxFeePerGas,
+                data
+            );
+    }
+
+    function unsafeCreateRetryableTicket(
+        address to,
+        uint256 l3CallValue,
+        uint256 maxSubmissionCost,
+        address excessFeeRefundAddress,
+        address callValueRefundAddress,
+        uint256 gasLimit,
+        uint256 maxFeePerGas,
+        bytes calldata data
+    ) public payable whenNotPaused onlyAllowed returns (uint256) {
+        if (gasLimit == 1 || maxFeePerGas == 1)
+            revert RetryableData(
+                msg.sender,
+                to,
+                l3CallValue,
+                maxSubmissionCost,
+                excessFeeRefundAddress,
+                callValueRefundAddress,
+                gasLimit,
+                maxFeePerGas,
+                data
+            );
+        if (gasLimit > type(uint64).max) revert GasLimitTooLarge();
+
+        uint256 submissionFee = calculateRetryableSubmissionFee(
+            dataLength,
+            block.basefee
+        );
+        if (maxSubmissionCost < submissionFee)
+            revert InsufficientSubmissionCost(submissionFee, maxSubmissionCost);
+
+        return
+            _deliverMessage(
+                L2MessageType_submitRetryableTx,
+                msg.sender,
+                abi.encodePacked(
+                    uint256(uint160(to)),
+                    l2CallValue,
+                    msg.value,
+                    maxSubmissionCost,
+                    uint256(uint160(excessFeeRefundAddress)),
+                    uint256(uint160(callValueRefundAddress)),
+                    gasLimit,
+                    maxFeePerGas,
+                    data.length,
+                    data
+                )
+            );
+    }
+
+    function uniswapCreateRetryableTicket(
+        address to,
+        uint256 l3CallValue,
+        uint256 maxSubmissionCost,
+        address excessFeeRefundAddress,
+        address callValueRefundAddress,
+        uint256 gasLimit,
+        uint256 maxFeePerGas,
+        bytes calldata data
+    ) external payable whenNotPaused onlyAllowed returns (uint256) {
+
+        require(msg.sender == UNISWAP_L1_TIMELOCK, "NOT_UNISWAP_L1_TIMELOCK");
+
+        require(to == UNISWAP_L2_FACTORY, "NOT_TO_UNISWAP_L2_FACTORY");
+
+ 
+        if (
+            msg.value <
+            (maxSubmissionCost + l2CallValue + gasLimit * maxFeePerGas)
+        ) {
+            revert InsufficientValue(
+                maxSubmissionCost + l2CallValue + gasLimit * maxFeePerGas,
+                msg.value
+            );
+        }
+
+        if (AddressUpgradeable.isContract(excessFeeRefundAddress)) {
+            excessFeeRefundAddress = AddressAliasHelper.applyL1ToL2Alias(
+                excessFeeRefundAddress
+            );
+        }
+        if (AddressUpgradeable.isContract(callValueRefundAddress)) {
+
+            callValueRefundAddress = AddressAliasHelper.applyL1ToL2Alias(
+                callValueRefundAddress
+            );
+        }
+        if (gasLimit == 1 || maxFeePerGas == 1)
+            revert RetryableData(
+                msg.sender,
+                to,
+                l3CallValue,
+                msg.value,
+                maxSubmissionCost,
+                excessFeeRefundAddress,
+                callValueRefundAddress,
+                gasLimit,
+                maxFeePerGas,
+                data
+            );
+
+        uint256 submissionFee = calculateRetryableSubmissionFee(
+            data.length,
+            block.basefee
+        );
+        if (maxSubmissionCost < submissionFee)
+            revert InsufficientSubmissionCost(submissionFee, maxSubmissionCost);
+
+        return
+            _deliverMessage(
+                L2MessageType_submitRetryableTx,
+                AddressAliasHelper.undoL2ToL3Alias(msg.sender),
+                abi.encodePacked(
+                    uint256(uint160(to)),
+                    l2CallValue,
+                    msg.value,
+                    maxSubmissionCost,
+                    uint256(uint160(excessFeeRefundAddress)),
+                    uint256(uint160(callValueRefundAddress)),
+                    gasLimit,
+                    maxFeePerGas,
+                    data.length,
+                    data
+                )
+            );
+    }
+
+    function _deliverMessage(
+        uint8 _kind,
+        address _sender,
+        bytes memory _messageData
+    ) internal returns (uint256) {
+        if (_messageData.length > MAX_DATA_SIZE)
+            revert DataTooLarge(_messageData.length, MAX_DATA_SIZE);
+        uint256 msgNum = deliverToBridge(
+            _kind,
+            _sender,
+            keccak256(_messageData)
+        );
+        emit InboxMessageDelivered(msgNum, _messageData);
+        return msgNum;
+    }
+
+    function deliverToBridge(
+        uint8 kind,
+        address sender,
+        bytes32 messageDataHash
+    ) internal returns (uint256) {
+        return
+            bridge.enqueueDelayedMessage{value: msg.value}(
+                kind,
+                AddressAliasHelper.applyL2ToL3Alias(sender),
+                messageDataHash
+            );
     }
 }
