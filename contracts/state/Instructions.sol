@@ -146,6 +146,6 @@ library Instructions {
     uint256 internal constant INBOX_INDEX_DELAYED = 1;
 
     function hash(Instruction memory inst) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("Instruction:", inst.opcode, inst.argumentData));
+        return keccak256(abi.encodePacked("Instruction:", inst.opCode, inst.argumentData));
     }
 }
