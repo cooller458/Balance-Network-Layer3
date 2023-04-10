@@ -89,6 +89,8 @@ library MerkleProofLib {
             } else {
                 h = keccak256(abi.encodePacked(prefix,proof.counterparts[layer],h));
             }
+            index >>= 1;
         }
+        
     }
 }
