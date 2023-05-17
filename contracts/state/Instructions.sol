@@ -8,7 +8,7 @@ struct Instruction {
 }
 
 library Instructions {
-        uint16 internal constant UNREACHABLE = 0x00;
+    uint16 internal constant UNREACHABLE = 0x00;
     uint16 internal constant NOP = 0x01;
     uint16 internal constant RETURN = 0x0F;
     uint16 internal constant CALL = 0x10;
